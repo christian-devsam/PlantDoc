@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlantaDoc - Asistente Botánico</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f0fdf4; color: #14532d; max-width: 800px; margin: 40px auto; padding: 30px; border: 1px solid #a7f3d0; border-radius: 12px; }
+        h1 { color: #064e3b; text-align: center; }
+        h1 span { font-size: 2.5rem; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input, textarea { width: 98%; padding: 12px; border-radius: 8px; border: 1px solid #6ee7b7; font-size: 1rem; background-color: #d1fae5; }
+        textarea { min-height: 120px; resize: vertical; }
+        button { width: 100%; background-color: #10b981; color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; font-size: 1.1rem; font-weight: bold; transition: background-color 0.3s; }
+        button:hover:not(:disabled) { background-color: #059669; }
+        button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+        #results { margin-top: 30px; background-color: #ecfdf5; padding: 20px; border-radius: 8px; border: 1px solid #6ee7b7; display: none; }
+        #results h3 { color: #065f46; border-bottom: 2px solid #34d399; padding-bottom: 5px; }
+        .loader { text-align: center; font-style: italic; display: none; margin-top: 20px; }
+        ul { list-style-type: none; padding-left: 0; }
+        li { margin-bottom: 10px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <h1>PlantaDoc <span>🌱</span></h1>
+    <p style="text-align: center;">Describe los síntomas de tu planta y obtén un diagnóstico y un plan de acción.</p>
+    
+    <form id="plantForm">
+        <div class="form-group">
+            <label for="plant_type">Tipo de Planta</label>
+            <input type="text" id="plant_type" placeholder="Ej: Rosal, Helecho, Tomatera" required>
+        </div>
+        <div class="form-group">
+            <label for="symptoms">Síntomas Observados</label>
+            <textarea id="symptoms" placeholder="Ej: Hojas amarillas con manchas marrones, tallos débiles, pequeños insectos blancos..." required></textarea>
+        </div>
+        <div class="form-group">
+            <label for="conditions">Condiciones de Cultivo</label>
+            <textarea id="conditions" placeholder="Ej: Maceta en interior, poca luz, riego 2 veces por semana..." required></textarea>
+        </div>
+        <button type="submit">Obtener Diagnóstico</button>
+    </form>
+
+    <div class="loader" id="loader">Consultando al experto botánico...</div>
+    <div id="results">
+        <h3 id="cause_title"></h3>
+        <p id="explanation"></p>
+        <h3>Plan de Acción Recomendado</h3>
+        <ul id="action_plan"></ul>
+    </div>
+
+    <script>
+        document.getElementById('plantForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = {
+                plant_type: document.getElementById('plant_type').value,
+                symptoms: document.getElementById('symptoms').value,
+                conditions: document.getElementById('conditions').value
+            };
+
+            const button = this.querySelector('button');
+            const loader = document.getElementById('loader');
+            const resultsDiv = document.getElementById('results');
+
+            button.disabled = true;
+            loader.style.display = 'block';
+            resultsDiv.style.display = 'none';
+
+            try {
+                const response = await fetch('/diagnose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) throw new Error('Error en la respuesta del servidor.');
+
+                const data = await response.json();
+                
+                document.getElementById('cause_title').innerText = `Diagnóstico Probable: ${data.probable_cause}`;
+                document.getElementById('explanation').innerText = data.explanation;
+                
+                const planList = document.getElementById('action_plan');
+                planList.innerHTML = '';
+                data.action_plan.forEach(step => {
+                    const li = document.createElement('li');
+                    li.innerHTML = step.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    planList.appendChild(li);
+                });
+
+                resultsDiv.style.display = 'block';
+            } catch (error) {
+                resultsDiv.style.display = 'block';
+                document.getElementById('cause_title').innerText = 'Error';
+                document.getElementById('explanation').innerText = 'No se pudo obtener un diagnóstico. Por favor, inténtalo de nuevo.';
+                document.getElementById('action_plan').innerHTML = '';
+                console.error('Error:', error);
+            } finally {
+                button.disabled = false;
+                loader.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
