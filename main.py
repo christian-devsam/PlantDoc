@@ -1,102 +1,115 @@
-import os
-import openai # Importamos la librería de OpenAI
-from flask import Flask, render_template, request, jsonify
-import json # Importamos json para procesar la respuesta del modelo
+import streamlit as st
+from groq import Groq # Importamos el cliente nativo de Groq
+import json
 
-# --- Configuración de la API de OpenAI ---
-# La librería buscará automáticamente la variable de entorno 'OPENAI_API_KEY'.
-# Asegúrate de haberla configurado en tu terminal.
+# --- 1. Configuración de la página ---
+st.set_page_config(
+    page_title="PlantaDoc AI (vía Groq)",
+    page_icon="🌿",
+    layout="centered"
+)
+
+# --- 2. Configuración de la API Key desde Secrets ---
+# Streamlit busca automáticamente en .streamlit/secrets.toml
 try:
-    client = openai.OpenAI()
-except openai.OpenAIError as e:
-    print(f"Error al inicializar el cliente de OpenAI. Asegúrate de que tu API key está configurada como una variable de entorno.")
-    print(f"Error: {e}")
+    api_key = st.secrets["API_KEY"]
+    client = Groq(api_key=api_key)
+except FileNotFoundError:
+    st.error("No se encontró el archivo de secretos (.streamlit/secrets.toml).")
+    client = None
+except KeyError:
+    st.error("La clave 'GROQ_API_KEY' no está definida en los secrets.")
+    client = None
+except Exception as e:
+    st.error(f"Error al conectar con Groq: {e}")
     client = None
 
-# Inicialización de la aplicación Flask
-app = Flask(__name__)
-
-@app.route('/')
-def index():
-    """Renderiza la página principal con el formulario de diagnóstico."""
-    return render_template('index.html')
-
+# --- 3. Lógica del Diagnóstico ---
 def get_plant_diagnosis(plant_type, symptoms, conditions):
     """
-    Función que llama a la API de OpenAI para obtener un diagnóstico.
+    Función que llama a la API de Groq para obtener un diagnóstico.
     """
-    if not client:
-        return {
-            "error": "El cliente de OpenAI no está configurado correctamente. Revisa tu API key."
-        }
-
-    # --- Creación del Prompt para el LLM ---
-    # Este es el "cerebro" de la operación. Le damos instrucciones claras al modelo.
     system_prompt = """
     Eres "PlantaDoc", un experto botánico y fitopatólogo de IA. 
     Tu objetivo es diagnosticar problemas en plantas basándote en la descripción del usuario.
-    Proporciona una respuesta estructurada en formato JSON con las siguientes claves:
-    1. "probable_cause": Un título corto y claro del diagnóstico (ej. "Ataque de Pulgón y Deficiencia de Magnesio").
-    2. "explanation": Una explicación detallada pero fácil de entender sobre por qué llegaste a ese diagnóstico, relacionando los síntomas descritos.
-    3. "action_plan": Una lista de strings, donde cada string es un paso claro y accionable del plan de tratamiento. Numera los pasos principales y usa un lenguaje sencillo.
+    
+    IMPORTANTE: Debes responder EXCLUSIVAMENTE en formato JSON válido.
+    
+    Estructura del JSON:
+    1. "probable_cause": Un título corto y claro del diagnóstico.
+    2. "explanation": Una explicación detallada sobre por qué llegaste a ese diagnóstico.
+    3. "action_plan": Una lista de strings con los pasos del tratamiento.
     """
     
     user_prompt = f"""
-    Necesito un diagnóstico para mi planta. Aquí están los detalles:
+    Diagnostica esta planta en formato JSON:
     - Tipo de planta: {plant_type}
     - Síntomas observados: {symptoms}
     - Condiciones de cultivo: {conditions}
     """
 
     try:
-        #Llamada a la API de OpenAI
-        response = client.chat.completions.create(
-            model="gpt-4o", 
+        # Llamada a la API de Groq
+        # Usamos Llama 3 70B por ser potente y tener excelente razonamiento
+        chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}, # Forzamos la salida a ser un JSON válido.
-            temperature=0.5, # Un valor bajo para respuestas más consistentes y menos "creativas".
-            max_tokens=1000
+            model="llama3-70b-8192", 
+            temperature=0.5,
+            max_tokens=1024,
+            response_format={"type": "json_object"}, # Groq soporta modo JSON nativo
+            stop=None,
         )
         
-        # Extraemos el contenido JSON de la respuesta
-        diagnosis_json = response.choices[0].message.content
+        diagnosis_json = chat_completion.choices[0].message.content
         return json.loads(diagnosis_json)
 
-    except openai.APIError as e:
-        print(f"Ocurrió un error con la API de OpenAI: {e}")
-        return {
-            "error": "Hubo un problema al comunicarse con la API de OpenAI. Inténtalo de nuevo más tarde."
-        }
+    except json.JSONDecodeError:
+        return {"error": "El modelo no generó un JSON válido. Inténtalo de nuevo."}
     except Exception as e:
-        print(f"Ocurrió un error inesperado: {e}")
-        return {
-            "error": "Ocurrió un error inesperado al procesar tu solicitud."
-        }
+        return {"error": str(e)}
 
+# --- 4. Interfaz de Usuario (Frontend) ---
+st.title("🌿 PlantaDoc: Diagnóstico Ultra Rápido")
+st.caption("Powered by Groq & Llama 3")
 
-@app.route('/diagnose', methods=['POST'])
-def diagnose():
-    """
-    Endpoint que recibe la descripción del problema de la planta y devuelve un diagnóstico.
-    """
-    # Obtener datos del JSON enviado desde el frontend
-    plant_type = request.json.get('plant_type')
-    symptoms = request.json.get('symptoms')
-    conditions = request.json.get('conditions')
+st.markdown("Describe el problema de tu planta y recibirás un diagnóstico instantáneo.")
 
-    if not all([plant_type, symptoms, conditions]):
-        return jsonify({"error": "Faltan datos en la solicitud."}), 400
-
-    # Llamamos a nuestra nueva función para obtener el diagnóstico del LLM
-    diagnosis_result = get_plant_diagnosis(plant_type, symptoms, conditions)
+with st.form("diagnosis_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        plant_type = st.text_input("Tipo de planta", placeholder="Ej. Ficus Lyrata")
+    with col2:
+        conditions = st.text_input("Condiciones de cultivo", placeholder="Ej. Interior, poca luz")
     
-    if "error" in diagnosis_result:
-        return jsonify(diagnosis_result), 500
+    symptoms = st.text_area("Síntomas observados", placeholder="Ej. Caída de hojas, manchas blancas...", height=100)
+    
+    submitted = st.form_submit_button("Diagnosticar Planta")
 
-    return jsonify(diagnosis_result)
+# --- 5. Procesamiento ---
+if submitted:
+    if not client:
+        st.error("Error de configuración: API Key de Groq no disponible.")
+    elif not plant_type or not symptoms:
+        st.warning("Por favor, completa al menos el tipo de planta y los síntomas.")
+    else:
+        with st.spinner("Consultando a Llama 3 en Groq..."):
+            result = get_plant_diagnosis(plant_type, symptoms, conditions)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=True)
+            if "error" in result:
+                st.error(f"Ocurrió un error: {result['error']}")
+            else:
+                st.success("¡Diagnóstico completado!")
+                st.divider()
+                
+                st.subheader(f"🔍 Diagnóstico: {result.get('probable_cause')}")
+                
+                st.markdown("### 📝 Explicación")
+                st.write(result.get('explanation'))
+                
+                st.markdown("### 🚑 Plan de Acción")
+                action_plan = result.get('action_plan', [])
+                for step in action_plan:
+                    st.markdown(f"- {step}")
