@@ -50,16 +50,16 @@ def get_plant_diagnosis(plant_type, symptoms, conditions):
 
     try:
         # Llamada a la API de Groq
-        # Usamos Llama 3 70B por ser potente y tener excelente razonamiento
+        # CAMBIO: Usamos el modelo 'llama-3.3-70b-versatile' que es el actual y más potente
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            model="llama3-70b-8192", 
+            model="llama-3.3-70b-versatile", # <--- AQUÍ ESTÁ EL CAMBIO
             temperature=0.5,
             max_tokens=1024,
-            response_format={"type": "json_object"}, # Groq soporta modo JSON nativo
+            response_format={"type": "json_object"}, 
             stop=None,
         )
         
