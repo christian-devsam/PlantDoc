@@ -12,7 +12,7 @@ st.set_page_config(
 
 # --- 2. Configuración de la API Key ---
 try:
-    api_key = st.secrets["GROQ_API_KEY"]
+    api_key = st.secrets["API_KEY"]
     client = Groq(api_key=api_key)
 except Exception as e:
     st.error(f"Error de configuración: {e}")
