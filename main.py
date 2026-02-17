@@ -32,81 +32,89 @@ def encode_image(uploaded_file):
             return None
     return None
 
-# --- 3. Lógica del Diagnóstico 
+# --- 3. Lógica del Diagnóstico (A prueba de fallos) ---
 def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
     """
-    Función blindada contra prompt injection, enfocada en ventas, con soporte visual.
+    Intenta diagnóstico visual. Si falla el modelo de visión, hace 'fallback' a texto.
     """
     
-    # 1. Selección del Modelo
-    # Si hay imagen, usamos el modelo de visión (Llama 3.2 11B).
-    # Si NO hay imagen, usamos el modelo de texto más potente (Llama 3.3 70B) para mejor razonamiento.
-    if image_base64:
-        model_id = "llama-3.2-11b-vision-preview" 
-    else:
-        model_id = "llama-3.3-70b-versatile"
+    # 1. Definimos los modelos
+    # Nota: Estos IDs cambian a menudo. Si falla el de visión, el código usará el de texto.
+    VISION_MODEL_ID = "llama-3.2-90b-vision-preview" # O prueba "llama-3.2-11b-vision-preview"
+    TEXT_MODEL_ID = "llama-3.3-70b-versatile"
 
     # SYSTEM PROMPT
     system_prompt = """
-    Eres "PlantaDoc", una IA experta en botánica.
-    TUS REGLAS:
-    1. Si el input (texto o imagen) NO es sobre plantas, devuelve {"is_plant_related": false}.
-    2. Diagnostica el problema y sugiere una solución.
-    3. Responde SIEMPRE en formato JSON estricto.
+    Eres "PlantaDoc", experto en botánica.
+    Reglas:
+    1. Si el input NO es sobre plantas -> {"is_plant_related": false}
+    2. Responde en JSON estricto.
     
-    FORMATO JSON:
+    Formato JSON:
     {
         "is_plant_related": true,
-        "probable_cause": "Causa",
-        "explanation": "Explicación breve",
+        "probable_cause": "Causa breve",
+        "explanation": "Explicación detallada",
         "action_plan": ["Paso 1", "Paso 2"],
         "suggested_tools": ["Producto A", "Herramienta B"]
     }
     """
+
+    user_text = f"Planta: {plant_type}, Síntomas: {symptoms}, Condiciones: {conditions}"
     
-    # USER PROMPT
-    user_text = f"""
-    Planta: {plant_type}
-    Síntomas: {symptoms}
-    Condiciones: {conditions}
-    """
-
-    # Construcción del mensaje según si hay imagen o no
-    messages_payload = [{"role": "system", "content": system_prompt}]
-
+    # --- INTENTO 1: MODELO DE VISIÓN (Si hay imagen) ---
     if image_base64:
-        # Estructura para Modelo de Visión
-        messages_payload.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": user_text},
+        try:
+            messages_vision = [
+                {"role": "system", "content": system_prompt},
                 {
-                    "type": "image_url", 
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                        }
+                    ]
                 }
             ]
-        })
-    else:
-        # Estructura para Modelo de Texto Normal
-        messages_payload.append({
-            "role": "user", 
-            "content": user_text
-        })
+            
+            chat_completion = client.chat.completions.create(
+                messages=messages_vision,
+                model=VISION_MODEL_ID,
+                temperature=0.2,
+                max_tokens=1024,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(chat_completion.choices[0].message.content)
 
+        except Exception as e:
+            # Si falla la visión, mostramos un aviso y seguimos con el plan B
+            print(f"Fallo modelo visión: {e}") 
+            # Esto aparecerá en la interfaz para avisar al usuario, pero no rompe la app
+            st.warning("⚠️ El modelo de visión de Groq está saturado o en mantenimiento. Analizando solo el texto...")
+
+    # --- INTENTO 2: MODELO DE TEXTO (Fallback o por defecto) ---
+    # Se ejecuta si no hay imagen O si el bloque de visión falló
     try:
+        messages_text = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
+        ]
+        
         chat_completion = client.chat.completions.create(
-            messages=messages_payload,
-            model=model_id, # Usamos el modelo seleccionado dinámicamente
+            messages=messages_text,
+            model=TEXT_MODEL_ID,
             temperature=0.2,
             max_tokens=1024,
-            response_format={"type": "json_object"},
-            stop=None,
+            response_format={"type": "json_object"}
         )
         
         return json.loads(chat_completion.choices[0].message.content)
 
     except Exception as e:
-        return {"error": f"Error de API ({model_id}): {str(e)}"}
+        return {"error": f"Error fatal en la API: {str(e)}"} 
+
 
 
 # --- 4. Interfaz de Usuario ---
