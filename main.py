@@ -147,7 +147,7 @@ def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
 col_logo, col_text = st.columns([1, 2])
 with col_logo:
     # Asegúrate de que el archivo del logo esté en la misma carpeta o usa una URL
-    st.image("image_63f7f6.jpg", width=150) 
+    st.image("jadindesama.jpg", width=150) 
 with col_text:
     st.title("Jardín de Sama")
     st.subheader("PlantaDoc AI: Tu experto botánico")
