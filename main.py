@@ -1,29 +1,78 @@
 import streamlit as st
 from groq import Groq
 import json
-import urllib.parse # Para crear el enlace de WhatsApp
-import base64 # IMPORTANTE: Necesario para procesar imágenes
+import urllib.parse
+import base64
 
 # --- 1. Configuración de la página ---
 st.set_page_config(
-    page_title="PlantaDoc AI - Diagnóstico Visual",
-    page_icon="🌿",
+    page_title="Jardín de Sama - PlantaDoc AI",
+    page_icon="🧚",
     layout="centered"
 )
 
-# --- 2. Configuración de la API Key ---
+# --- 2. Estilo Personalizado (CSS) ---
+# Aquí inyectamos el diseño basado en el logo: Turquesa, Dorado y bordes suaves.
+st.markdown("""
+    <style>
+    /* Fondo y tipografía general */
+    .stApp {
+        background-color: #f0f7f4;
+    }
+    
+    /* Estilo del contenedor principal */
+    .main-card {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 20px;
+        border-left: 8px solid #33c1ba;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    }
+    
+    /* Títulos con color del logo */
+    h1, h2, h3 {
+        color: #2a9d8f !important;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    
+    /* Botón de análisis personalizado */
+    div.stButton > button:first-child {
+        background: linear-gradient(135deg, #33c1ba 0%, #2a9d8f 100%);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 50px;
+        font-weight: bold;
+        width: 100%;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(51, 193, 186, 0.4);
+    }
+    
+    div.stButton > button:first-child:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(51, 193, 186, 0.6);
+    }
+
+    /* Estilo para los resultados */
+    .result-box {
+        background-color: #e6f4f1;
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #33c1ba;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 3. Configuración de la API Key ---
 try:
-    # Asegúrate de tener esto en .streamlit/secrets.toml
     api_key = st.secrets["API_KEY"]
     client = Groq(api_key=api_key)
 except Exception as e:
-    st.error(f"Error de configuración: {e}")
-    stop = True
+    st.error("Error: No se encontró la API_KEY en secrets.")
     client = None
 
-# --- FUNCIÓN HELPER PARA IMÁGENES ---
+# --- FUNCIONES HELPER ---
 def encode_image(uploaded_file):
-    """Codifica el archivo subido a base64 para la API."""
     if uploaded_file is not None:
         try:
             return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
@@ -32,24 +81,16 @@ def encode_image(uploaded_file):
             return None
     return None
 
-# --- 3. Lógica del Diagnóstico (A prueba de fallos) ---
 def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
-    """
-    Intenta diagnóstico visual. Si falla el modelo de visión, hace 'fallback' a texto.
-    """
-    
-    # 1. Definimos los modelos
-    # Nota: Estos IDs cambian a menudo. Si falla el de visión, el código usará el de texto.
-    VISION_MODEL_ID = "llama-3.2-90b-vision-preview" # O prueba "llama-3.2-11b-vision-preview"
+    VISION_MODEL_ID = "llama-3.2-90b-vision-preview"
     TEXT_MODEL_ID = "llama-3.3-70b-versatile"
 
-    # SYSTEM PROMPT
     system_prompt = """
-    Eres "PlantaDoc", experto en botánica.
+    Eres "PlantaDoc", el asistente experto del 'Jardín de Sama'. 
+    Tu tono es amable, mágico (como un hada del jardín) y muy profesional.
     Reglas:
     1. Si el input NO es sobre plantas -> {"is_plant_related": false}
     2. Responde en JSON estricto.
-    
     Formato JSON:
     {
         "is_plant_related": true,
@@ -62,7 +103,6 @@ def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
 
     user_text = f"Planta: {plant_type}, Síntomas: {symptoms}, Condiciones: {conditions}"
     
-    # --- INTENTO 1: MODELO DE VISIÓN (Si hay imagen) ---
     if image_base64:
         try:
             messages_vision = [
@@ -71,14 +111,10 @@ def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_text},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
-                        }
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
                     ]
                 }
             ]
-            
             chat_completion = client.chat.completions.create(
                 messages=messages_vision,
                 model=VISION_MODEL_ID,
@@ -87,150 +123,105 @@ def get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=None):
                 response_format={"type": "json_object"}
             )
             return json.loads(chat_completion.choices[0].message.content)
+        except Exception:
+            st.warning("⚠️ El análisis visual está ocupado. Analizando por descripción...")
 
-        except Exception as e:
-            # Si falla la visión, mostramos un aviso y seguimos con el plan B
-            print(f"Fallo modelo visión: {e}") 
-            # Esto aparecerá en la interfaz para avisar al usuario, pero no rompe la app
-            st.warning("⚠️ El modelo de visión de Groq está saturado o en mantenimiento. Analizando solo el texto...")
-
-    # --- INTENTO 2: MODELO DE TEXTO (Fallback o por defecto) ---
-    # Se ejecuta si no hay imagen O si el bloque de visión falló
     try:
         messages_text = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text}
         ]
-        
         chat_completion = client.chat.completions.create(
             messages=messages_text,
             model=TEXT_MODEL_ID,
             temperature=0.2,
-            max_tokens=1024,
             response_format={"type": "json_object"}
         )
-        
         return json.loads(chat_completion.choices[0].message.content)
-
     except Exception as e:
-        return {"error": f"Error fatal en la API: {str(e)}"} 
-
-
+        return {"error": f"Error fatal: {str(e)}"}
 
 # --- 4. Interfaz de Usuario ---
-st.title("🌿 PlantaDoc AI + Visión")
-st.markdown("Sube una foto y describe el problema para un diagnóstico experto.")
 
-with st.form("diagnosis_form"):
+# Encabezado con el Logo
+col_logo, col_text = st.columns([1, 2])
+with col_logo:
+    # Asegúrate de que el archivo del logo esté en la misma carpeta o usa una URL
+    st.image("image_63f7f6.jpg", width=150) 
+with col_text:
+    st.title("Jardín de Sama")
+    st.subheader("PlantaDoc AI: Tu experto botánico")
+
+st.markdown("---")
+
+with st.container():
+    st.markdown('<div class="main-card">', unsafe_allow_html=True)
+    
+    st.markdown("### 🌿 Cuéntanos sobre tu planta")
+    
     col1, col2 = st.columns(2)
     with col1:
-        plant_type = st.text_input("Tipo de planta (Opcional)", placeholder="Ej. Ficus, Rosa...")
+        plant_type = st.text_input("¿Qué planta es?", placeholder="Ej. Orquídea, Suculenta...")
     with col2:
-        conditions = st.text_input("Condiciones (Opcional)", placeholder="Ej. Interior, poca luz...")
-    
-    # --- NUEVO: Cargador de imágenes ---
-    st.markdown("### 📸 Sube una foto de la planta (Opcional pero recomendado)")
-    uploaded_file = st.file_uploader("Elige una imagen...", type=["jpg", "jpeg", "png"])
-    
-    if uploaded_file is not None:
-        # Mostrar la imagen que el usuario acaba de subir
-        st.image(uploaded_file, caption="Imagen cargada para análisis", use_column_width=True)
+        conditions = st.text_input("¿Dónde vive?", placeholder="Ej. Balcón, mucha sombra...")
 
-    symptoms = st.text_area("Describe los síntomas (Obligatorio si no hay foto)", placeholder="Ej. Hojas negras, bichos blancos...", height=100)
+    st.markdown("#### 📸 Sube una foto (Recomendado)")
+    uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
     
-    submitted = st.form_submit_button("🔍 Analizar Planta")
+    if uploaded_file:
+        st.image(uploaded_file, caption="Imagen para análisis", width=300)
 
+    symptoms = st.text_area("¿Qué síntomas notas?", placeholder="Ej. Manchas amarillas, se caen las hojas...", height=100)
+    
+    submitted = st.button("✨ Iniciar Diagnóstico Mágico")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 5. Procesamiento y Resultados ---
 if submitted:
-    # Validaciones básicas
-    if not client:
-        st.error("Falta configurar la API Key en los secrets.")
-        st.stop()
-        
-    # Validar que haya al menos descripción O imagen
     if not symptoms and not uploaded_file:
-        st.warning("⚠️ Por favor, describe los síntomas por escrito o sube una imagen de la planta.")
+        st.warning("🧚 Por favor, describe el problema o sube una foto para que el hada pueda ayudarte.")
     else:
-        with st.spinner("Analizando imagen y texto con protocolos de seguridad..."):
-            # 1. Procesar imagen si existe
-            image_base64_data = None
-            if uploaded_file:
-                image_base64_data = encode_image(uploaded_file)
-                if image_base64_data is None:
-                    st.stop() # Hubo un error al codificar
+        with st.spinner("Consultando con los espíritus del jardín..."):
+            img_data = encode_image(uploaded_file)
+            result = get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=img_data)
 
-            # 2. Llamar a la IA (pasando la imagen si la hay)
-            result = get_plant_diagnosis(plant_type, symptoms, conditions, image_base64=image_base64_data)
-
-            # A. Manejo de Errores Técnicos
             if "error" in result:
                 st.error(result["error"])
-            
-            # B. Manejo de Bloqueo de Seguridad (Prompt Injection detectado o imagen no válida)
             elif result.get("is_plant_related") is False:
-                st.error("🚫 Solicitud rechazada.")
-                st.markdown("PlantaDoc ha detectado que el texto o la imagen proporcionada **no parecen estar relacionados con plantas**.")
-                st.info("Por favor, asegúrate de subir una foto clara de una planta o reformula tu pregunta enfocándote en botánica.")
-
-            # C. Diagnóstico Exitoso
+                st.error("🚫 Lo siento, solo puedo ayudarte con temas de plantas y jardín.")
             else:
-                st.success("✅ Diagnóstico completado exitosamente")
-                st.divider()
+                st.balloons()
+                st.success("¡Diagnóstico Listo!")
                 
-                # Mostrar Diagnóstico Principal
-                st.subheader(f"🔍 Causa probable: {result.get('probable_cause', 'No especificada')}")
-                st.write(result.get('explanation', 'Sin explicación detallada.'))
-                
-                # Plan de Acción
-                st.markdown("### 🚑 Plan de Tratamiento")
-                action_plan = result.get('action_plan', [])
-                if action_plan:
-                    for step in action_plan:
-                        st.markdown(f"- {step}")
-                else:
-                    st.info("No se generó un plan de acción específico.")
+                # Mostrar resultados con diseño
+                st.markdown(f"""
+                <div class="result-box">
+                    <h3>🔍 Causa: {result.get('probable_cause')}</h3>
+                    <p>{result.get('explanation')}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-                # Sección de Productos Sugeridos y Venta
+                st.markdown("### 🚑 Plan de acción")
+                for step in result.get('action_plan', []):
+                    st.markdown(f"✅ {step}")
+
+                # Productos y WhatsApp
                 tools = result.get('suggested_tools', [])
                 if tools:
                     st.divider()
-                    st.markdown("### 🛠️ Herramientas y Productos Recomendados")
+                    st.markdown("### 🛒 Recomendaciones del Jardín")
                     tools_str = ', '.join(tools)
-                    st.info(f"Para este tratamiento, PlantaDoc sugiere utilizar: **{tools_str}**.")
+                    st.info(f"Necesitarás: **{tools_str}**")
                     
-                    # --- Integración con WhatsApp de Camila ---
-                    phone_number = "56931495038" 
-                    
-                    # Creamos el mensaje prellenado (incluyendo mención a la foto si la hubo)
-                    base_msg = f"Hola Camila, mi planta tiene *{result.get('probable_cause')}*."
-                    if uploaded_file:
-                        base_msg += " (Tengo una foto del problema)."
-                    base_msg += f" PlantaDoc me recomendó comprar: {tools_str}. ¿Me puedes orientar para la compra?"
-                    
-                    msg_encoded = urllib.parse.quote(base_msg)
-                    whatsapp_url = f"https://wa.me/{phone_number}?text={msg_encoded}"
+                    # WhatsApp Link
+                    phone = "56931495038"
+                    msg = f"¡Hola Camila! En el Jardín de Sama me diagnosticaron {result.get('probable_cause')}. Necesito: {tools_str}. ¿Me ayudas?"
+                    url = f"https://wa.me/{phone}?text={urllib.parse.quote(msg)}"
                     
                     st.markdown(f"""
-                    <a href="{whatsapp_url}" target="_blank" style="text-decoration: none;">
-                        <button style="
-                            background-color:#25D366; 
-                            color:white; 
-                            border:none; 
-                            padding:12px 24px; 
-                            border-radius:8px; 
-                            font-weight:bold; 
-                            font-size:18px; 
-                            cursor:pointer;
-                            width:100%;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 10px;
-                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                            transition: background-color 0.3s;">
-                            <span>📲</span> Contactar a Camila (Comprar utensilios)
-                        </button>
-                    </a>
+                        <a href="{url}" target="_blank" style="text-decoration: none;">
+                            <div style="background-color:#25D366; color:white; padding:15px; border-radius:12px; text-align:center; font-weight:bold; font-size:1.2rem; cursor:pointer;">
+                                📲 Pedir productos a Camila por WhatsApp
+                            </div>
+                        </a>
                     """, unsafe_allow_html=True)
-                    st.caption("Al hacer clic, se abrirá WhatsApp con tu diagnóstico listo para enviar.")
