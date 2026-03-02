@@ -3,6 +3,9 @@ from groq import Groq
 import json
 import urllib.parse
 import base64
+import pandas as pd
+from datetime import datetime
+import os
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -11,15 +14,10 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- 2. ESTILO PERSONALIZADO (Diseño Premium Original) ---
+# --- 2. ESTILO PERSONALIZADO (Diseño Premium) ---
 st.markdown("""
     <style>
-    /* Fondo y tipografía general */
-    .stApp {
-        background-color: #f0f7f4;
-    }
-    
-    /* Contenedor principal estilizado */
+    .stApp { background-color: #f0f7f4; }
     .main-card {
         background-color: white;
         padding: 2.5rem;
@@ -28,32 +26,13 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    
-    /* Títulos con color del logo */
-    h1, h2, h3 {
-        color: #2a9d8f !important;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    
-    /* Botón de análisis con degradado turquesa */
+    h1, h2, h3 { color: #2a9d8f !important; font-family: 'Helvetica Neue', sans-serif; }
     div.stButton > button:first-child {
         background: linear-gradient(135deg, #33c1ba 0%, #2a9d8f 100%);
-        color: white;
-        border: none;
-        padding: 15px 30px;
-        border-radius: 50px;
-        font-weight: bold;
-        width: 100%;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(51, 193, 186, 0.4);
+        color: white; border: none; padding: 15px 30px;
+        border-radius: 50px; font-weight: bold; width: 100%;
+        transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(51, 193, 186, 0.4);
     }
-    
-    div.stButton > button:first-child:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(51, 193, 186, 0.6);
-    }
-
-    /* Caja de resultados con diseño suave */
     .result-box {
         background-color: #e6f4f1;
         padding: 20px;
@@ -61,8 +40,6 @@ st.markdown("""
         border: 1px solid #33c1ba;
         margin-bottom: 20px;
     }
-
-    /* Estilo para la encuesta obligatoria */
     .survey-section {
         border: 2px dashed #33c1ba;
         padding: 20px;
@@ -72,130 +49,113 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. GESTIÓN DE ESTADO (MÁQUINA DE PASOS) ---
+# --- 3. GESTIÓN DE ESTADO Y ARCHIVOS ---
 if 'step' not in st.session_state:
-    st.session_state.step = "input"  # Pasos: input -> survey -> final
+    st.session_state.step = "input"
 if 'result_data' not in st.session_state:
     st.session_state.result_data = None
 
-# --- 4. FUNCIONES HELPER ---
+def guardar_datos_encuesta(p_type, rating, useful, comment):
+    """Guarda las respuestas en un archivo CSV local"""
+    file_path = 'reporte_encuestas.csv'
+    nueva_fila = {
+        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Planta": p_type,
+        "Calificacion": rating,
+        "Interes_Compra": useful,
+        "Comentario": comment
+    }
+    df = pd.DataFrame([nueva_fila])
+    if not os.path.isfile(file_path):
+        df.to_csv(file_path, index=False)
+    else:
+        df.to_csv(file_path, mode='a', header=False, index=False)
+
+# --- 4. FUNCIÓN DE DIAGNÓSTICO ---
 def get_plant_diagnosis(plant_type, symptoms, conditions):
     client = Groq(api_key=st.secrets["API_KEY"])
-    system_prompt = """
-    Eres "PlantaDoc", el experto del Jardín de Sama. 
-    Responde en JSON estricto con:
-    {"probable_cause": "...", "explanation": "...", "action_plan": ["..."], "suggested_tools": ["..."]}
-    """
+    system_prompt = 'Eres "PlantaDoc". Responde en JSON: {"probable_cause": "...", "explanation": "...", "action_plan": ["..."], "suggested_tools": ["..."]}'
     user_text = f"Planta: {plant_type}, Síntomas: {symptoms}, Condiciones: {conditions}"
     
-    chat_completion = client.chat.completions.create(
+    chat = client.chat.completions.create(
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}],
         model="llama-3.3-70b-versatile",
-        temperature=0.2,
         response_format={"type": "json_object"}
     )
-    return json.loads(chat_completion.choices[0].message.content)
+    return json.loads(chat.choices[0].message.content)
 
 # --- 5. INTERFAZ DE USUARIO ---
 
 # Encabezado
-col_logo, col_text = st.columns([1, 3])
-with col_logo:
-    st.image("jadindesama.jpg", width=120) 
-with col_text:
-    st.markdown("<h1>Jardín de Sama</h1>", unsafe_allow_html=True)
-    st.subheader("PlantaDoc AI: Tu experto botánico")
+st.markdown("<h1>🧚 Jardín de Sama</h1>", unsafe_allow_html=True)
+st.subheader("PlantaDoc AI: Tu experto botánico")
 
-st.markdown("---")
-
-# PASO 1: Formulario de Diagnóstico
+# PASO 1: Formulario
 if st.session_state.step == "input":
     with st.container():
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
         st.markdown("### 🌿 Cuéntanos sobre tu planta")
-        
         col1, col2 = st.columns(2)
         with col1:
-            plant_type = st.text_input("¿Qué planta es?", placeholder="Ej. Orquídea...")
+            p_name = st.text_input("¿Qué planta es?", key="p_name")
         with col2:
-            conditions = st.text_input("¿Dónde vive?", placeholder="Ej. Balcón soleado...")
-
-        symptoms = st.text_area("¿Qué síntomas notas?", placeholder="Describe lo que ves...", height=100)
+            p_cond = st.text_input("¿Dónde vive?", key="p_cond")
+        p_symp = st.text_area("¿Qué síntomas notas?", height=100)
         
         if st.button("✨ Iniciar Diagnóstico Mágico"):
-            if symptoms:
+            if p_symp:
                 with st.spinner("Consultando con los espíritus del jardín..."):
-                    try:
-                        st.session_state.result_data = get_plant_diagnosis(plant_type, symptoms, conditions)
-                        st.session_state.step = "survey"
-                        st.rerun()
-                    except:
-                        st.error("🧚 Hubo un problema con la magia. Inténtalo de nuevo.")
+                    st.session_state.result_data = get_plant_diagnosis(p_name, p_symp, p_cond)
+                    st.session_state.current_plant = p_name
+                    st.session_state.step = "survey"
+                    st.rerun()
             else:
-                st.warning("Por favor, describe los síntomas para poder ayudarte.")
+                st.warning("Describe los síntomas para continuar.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# PASO 2: Encuesta Obligatoria (Diseño Integrado)
+# PASO 2: Encuesta Obligatoria
 elif st.session_state.step == "survey":
     res = st.session_state.result_data
     st.markdown('<div class="main-card">', unsafe_allow_html=True)
-    st.success("✨ ¡Diagnóstico generado con éxito!")
-    st.markdown(f"**Causa detectada inicialmente:** {res.get('probable_cause')}")
-    st.write("---")
+    st.success("✨ ¡Diagnóstico generado!")
+    st.markdown(f"**Análisis preliminar:** {res.get('probable_cause')}")
+    st.divider()
     
-    st.markdown("### 📝 Encuesta Obligatoria")
-    st.info("Para desbloquear el **Plan de Acción detallado** y los productos necesarios, ayúdanos con tu opinión:")
+    st.markdown("### 📝 Encuesta de Satisfacción")
+    st.info("Completa esto para desbloquear el plan de acción detallado:")
     
-    with st.form("mandatory_survey"):
+    with st.form("survey_form"):
         st.markdown('<div class="survey-section">', unsafe_allow_html=True)
-        q1 = st.select_slider("¿Qué tan útil te parece la información inicial?", 
-                              options=["Poco", "Regular", "Buena", "Muy Buena", "Excelente"])
-        q2 = st.radio("¿Comprarías los productos recomendados en nuestra tienda?", ("Sí", "Tal vez", "No"))
-        q3 = st.text_input("¿Tienes alguna sugerencia para mejorar PlantaDoc?")
+        q1 = st.select_slider("¿Qué tan preciso parece el diagnóstico?", options=["1", "2", "3", "4", "5"])
+        q2 = st.radio("¿Comprarías los productos recomendados aquí?", ("Sí", "Tal vez", "No"))
+        q3 = st.text_input("¿Cómo podemos mejorar?")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        if st.form_submit_button("Enviar y Ver Solución Completa ✅"):
+        if st.form_submit_button("Enviar y Desbloquear Solución ✅"):
+            guardar_datos_encuesta(st.session_state.current_plant, q1, q2, q3)
             st.session_state.step = "final"
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# PASO 3: Resultado Final y Plan de Acción
+# PASO 3: Resultado Final
 elif st.session_state.step == "final":
     res = st.session_state.result_data
     st.balloons()
-    
     with st.container():
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class="result-box">
-            <h3>🔍 Causa: {res.get('probable_cause')}</h3>
-            <p>{res.get('explanation')}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f'<div class="result-box"><h3>🔍 Causa: {res.get("probable_cause")}</h3><p>{res.get("explanation")}</p></div>', unsafe_allow_html=True)
+        
         st.markdown("### 🚑 Plan de acción")
         for step in res.get('action_plan', []):
             st.markdown(f"✅ {step}")
-
-        st.divider()
         
-        # Productos y WhatsApp
-        tools = res.get('suggested_tools', [])
-        tools_str = ', '.join(tools)
-        phone = "56931495038"
-        msg = f"¡Hola Camila! En PlantaDoc me diagnosticaron {res.get('probable_cause')}. Necesito: {tools_str}."
-        url = f"https://wa.me/{phone}?text={urllib.parse.quote(msg)}"
+        tools_str = ', '.join(res.get('suggested_tools', []))
+        url = f"https://wa.me/56931495038?text=Hola%20Camila!%20En%20PlantaDoc%20mi%20planta%20tiene%20{res.get('probable_cause')}.%20Necesito:%20{tools_str}"
         
-        st.info(f"**Necesitarás para curarla:** {tools_str}")
-        st.markdown(f"""
-            <a href="{url}" target="_blank" style="text-decoration: none;">
-                <div style="background-color:#25D366; color:white; padding:15px; border-radius:12px; text-align:center; font-weight:bold; font-size:1.2rem;">
-                    📲 Pedir productos a Camila por WhatsApp
-                </div>
-            </a>
-        """, unsafe_allow_html=True)
+        st.info(f"**Necesitarás:** {tools_str}")
+        st.markdown(f'<br><a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366; color:white; padding:15px; border-radius:12px; text-align:center; font-weight:bold;">📲 Pedir productos a Camila</div></a>', unsafe_allow_html=True)
         
-        if st.button("🔄 Realizar otra consulta"):
+        if st.button("🔄 Nueva Consulta"):
             st.session_state.step = "input"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
