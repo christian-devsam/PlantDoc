@@ -14,7 +14,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- 2. ESTILO PERSONALIZADO (Diseño Premium) ---
+# --- 2. ESTILO PERSONALIZADO (Diseño Premium Original) ---
 st.markdown("""
     <style>
     .stApp { background-color: #f0f7f4; }
@@ -40,43 +40,72 @@ st.markdown("""
         border: 1px solid #33c1ba;
         margin-bottom: 20px;
     }
-    .survey-section {
-        border: 2px dashed #33c1ba;
-        padding: 20px;
-        border-radius: 15px;
+    /* Estilo para la barra lateral oculta */
+    [data-testid="stSidebar"] {
         background-color: #ffffff;
+        border-right: 2px solid #33c1ba;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. GESTIÓN DE ESTADO Y ARCHIVOS ---
-if 'step' not in st.session_state:
-    st.session_state.step = "input"
-if 'result_data' not in st.session_state:
-    st.session_state.result_data = None
+# --- 3. FUNCIONES DE DATOS Y ARCHIVOS ---
+FILE_PATH = 'reporte_encuestas.csv'
 
 def guardar_datos_encuesta(p_type, rating, useful, comment):
-    """Guarda las respuestas en un archivo CSV local"""
-    file_path = 'reporte_encuestas.csv'
     nueva_fila = {
-        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Planta": p_type,
         "Calificacion": rating,
         "Interes_Compra": useful,
         "Comentario": comment
     }
     df = pd.DataFrame([nueva_fila])
-    if not os.path.isfile(file_path):
-        df.to_csv(file_path, index=False)
+    if not os.path.isfile(FILE_PATH):
+        df.to_csv(FILE_PATH, index=False)
     else:
-        df.to_csv(file_path, mode='a', header=False, index=False)
+        df.to_csv(FILE_PATH, mode='a', header=False, index=False)
 
-# --- 4. FUNCIÓN DE DIAGNÓSTICO ---
+# --- 4. PANEL DE ADMINISTRACIÓN (PÁGINA SECRETA) ---
+st.sidebar.title("🔐 Panel de Control")
+password = st.sidebar.text_input("Introduce la clave maestra", type="password")
+
+# Cambia 'sama2024' por la contraseña que tú quieras
+if password == "sama2024":
+    st.sidebar.success("Acceso Concedido")
+    st.sidebar.markdown("---")
+    st.sidebar.write("### 📊 Descargar Reportes")
+    
+    if os.path.exists(FILE_PATH):
+        df_download = pd.read_csv(FILE_PATH)
+        st.sidebar.dataframe(df_download.tail(5)) # Ver las últimas 5 respuestas
+        
+        csv = df_download.to_csv(index=False).encode('utf-8')
+        st.sidebar.download_button(
+            label="📥 Descargar CSV Completo",
+            data=csv,
+            file_name=f'reporte_jardin_sama_{datetime.now().strftime("%Y%m%d")}.csv',
+            mime='text/csv',
+        )
+        if st.sidebar.button("🗑️ Borrar Historial"):
+            os.remove(FILE_PATH)
+            st.sidebar.warning("Historial eliminado.")
+            st.rerun()
+    else:
+        st.sidebar.info("Aún no hay datos registrados.")
+else:
+    if password != "":
+        st.sidebar.error("Clave incorrecta")
+
+# --- 5. LÓGICA DE ESTADOS Y DIAGNÓSTICO ---
+if 'step' not in st.session_state:
+    st.session_state.step = "input"
+if 'result_data' not in st.session_state:
+    st.session_state.result_data = None
+
 def get_plant_diagnosis(plant_type, symptoms, conditions):
     client = Groq(api_key=st.secrets["API_KEY"])
     system_prompt = 'Eres "PlantaDoc". Responde en JSON: {"probable_cause": "...", "explanation": "...", "action_plan": ["..."], "suggested_tools": ["..."]}'
     user_text = f"Planta: {plant_type}, Síntomas: {symptoms}, Condiciones: {conditions}"
-    
     chat = client.chat.completions.create(
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}],
         model="llama-3.3-70b-versatile",
@@ -84,11 +113,15 @@ def get_plant_diagnosis(plant_type, symptoms, conditions):
     )
     return json.loads(chat.choices[0].message.content)
 
-# --- 5. INTERFAZ DE USUARIO ---
+# --- 6. INTERFAZ PRINCIPAL (DISEÑO PREMIUM CON LOGO) ---
+col_logo, col_text = st.columns([1, 3])
+with col_logo:
+    st.image("jadindesama.jpg", width=120) 
+with col_text:
+    st.markdown("<h1>Jardín de Sama</h1>", unsafe_allow_html=True)
+    st.subheader("PlantaDoc AI: Tu experto botánico")
 
-# Encabezado
-st.markdown("<h1>🧚 Jardín de Sama</h1>", unsafe_allow_html=True)
-st.subheader("PlantaDoc AI: Tu experto botánico")
+st.markdown("---")
 
 # PASO 1: Formulario
 if st.session_state.step == "input":
@@ -97,10 +130,10 @@ if st.session_state.step == "input":
         st.markdown("### 🌿 Cuéntanos sobre tu planta")
         col1, col2 = st.columns(2)
         with col1:
-            p_name = st.text_input("¿Qué planta es?", key="p_name")
+            p_name = st.text_input("¿Qué planta es?", key="p_name", placeholder="Ej: Ficus")
         with col2:
-            p_cond = st.text_input("¿Dónde vive?", key="p_cond")
-        p_symp = st.text_area("¿Qué síntomas notas?", height=100)
+            p_cond = st.text_input("¿Dónde vive?", key="p_cond", placeholder="Ej: Terraza")
+        p_symp = st.text_area("¿Qué síntomas notas?", height=100, placeholder="Describe las manchas o insectos...")
         
         if st.button("✨ Iniciar Diagnóstico Mágico"):
             if p_symp:
@@ -110,7 +143,7 @@ if st.session_state.step == "input":
                     st.session_state.step = "survey"
                     st.rerun()
             else:
-                st.warning("Describe los síntomas para continuar.")
+                st.warning("🧚 Por favor, describe los síntomas.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # PASO 2: Encuesta Obligatoria
@@ -121,17 +154,13 @@ elif st.session_state.step == "survey":
     st.markdown(f"**Análisis preliminar:** {res.get('probable_cause')}")
     st.divider()
     
-    st.markdown("### 📝 Encuesta de Satisfacción")
-    st.info("Completa esto para desbloquear el plan de acción detallado:")
-    
     with st.form("survey_form"):
-        st.markdown('<div class="survey-section">', unsafe_allow_html=True)
+        st.markdown("### 📝 Encuesta de Satisfacción")
         q1 = st.select_slider("¿Qué tan preciso parece el diagnóstico?", options=["1", "2", "3", "4", "5"])
         q2 = st.radio("¿Comprarías los productos recomendados aquí?", ("Sí", "Tal vez", "No"))
         q3 = st.text_input("¿Cómo podemos mejorar?")
-        st.markdown('</div>', unsafe_allow_html=True)
         
-        if st.form_submit_button("Enviar y Desbloquear Solución ✅"):
+        if st.form_submit_button("Enviar y Ver Solución Completa ✅"):
             guardar_datos_encuesta(st.session_state.current_plant, q1, q2, q3)
             st.session_state.step = "final"
             st.rerun()
